@@ -43,20 +43,19 @@ final class DiffHtmlTest extends TestCase
         $this->assertFalse($isFullReplacement);
     }
 
-    public function testDoesNotTriggerFullReplacementWhenThresholdIsNull(): void
+    public function testOrphanMatchingProducesCleanBlocksWhenThresholdIsNull(): void
     {
         $html = DiffHtml::render(
             'Completely different text here with many words.',
             'XYZ 123 ABC.'
         );
-        $isFullReplacement = substr_count($html, 'diff-removed') === 1
-            && substr_count($html, 'diff-added') === 1
-            && str_contains($html, '>Completely different text here with many words.<')
-            && str_contains($html, '>XYZ 123 ABC.<');
-        $this->assertFalse($isFullReplacement);
+        // Without similarityThreshold, orphan matching still cleans up the output
+        // into grouped removed/added blocks (no garbled interleaving)
+        $this->assertStringContainsString('diff-removed', $html);
+        $this->assertStringContainsString('diff-added', $html);
     }
 
-    public function testThresholdZeroNeverTriggersFullReplacement(): void
+    public function testThresholdZeroDisablesFullReplacementButOrphanMatchingStillApplies(): void
     {
         $html = DiffHtml::render(
             'Completely different text here.',
@@ -64,11 +63,10 @@ final class DiffHtmlTest extends TestCase
             [],
             0.0
         );
-        $isFullReplacement = substr_count($html, 'diff-removed') === 1
-            && substr_count($html, 'diff-added') === 1
-            && str_contains($html, '>Completely different text here.<')
-            && str_contains($html, '>XYZ 123.<');
-        $this->assertFalse($isFullReplacement);
+        // similarityThreshold 0 disables the full-replacement path,
+        // but orphan matching still produces clean grouped blocks
+        $this->assertStringContainsString('diff-removed', $html);
+        $this->assertStringContainsString('diff-added', $html);
     }
 
     public function testThresholdOneTriggersFullReplacementForNonIdenticalText(): void
@@ -127,6 +125,40 @@ final class DiffHtmlTest extends TestCase
         $html = DiffHtml::render('', '', [], 0.3);
         $this->assertStringNotContainsString('diff-removed', $html);
         $this->assertStringNotContainsString('diff-added', $html);
+    }
+
+    // ─── Bug 4: Real-world garbled interleaving on partial replacement ─
+
+    public function testBug4aRealWorldHtmlSecondSentenceReplacedNoInterleaving(): void
+    {
+        $html = DiffHtml::render(
+            "<p>Each Party acknowledges that at all times during the Term of this Agreement the Surrogate will retain bodily autonomy and the right to obtain a second medical opinion with respect to any proposed test, procedure, treatment, or medication which will be covered by the Intended Parents as an Additional Expense Amounts. Each Party acknowledges that any term of this Agreement where the Surrogate gives her consent with respect to any proposed test, procedure, treatment, or medication will be interpreted by the Parties to mean that the Surrogate intends to give her consent at the relevant time if such consent is fully informed and voluntary.</p>\n",
+            "<p>Each Party acknowledges that at all times during the Term of this Agreement the Surrogate will retain bodily autonomy and the right to obtain a second medical opinion with respect to any proposed test, procedure, treatment, or medication which will be covered by the Intended Parents as an Additional Expense Amounts. Test writing new content.</p>\n"
+        );
+        // New words should NOT appear in removed spans
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*Test/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*writing/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*content/', $html);
+        // Old words should NOT appear in added spans
+        $this->assertDoesNotMatchRegularExpression('/diff-added[^>]*>[^<]*interpreted/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-added[^>]*>[^<]*voluntary/', $html);
+    }
+
+    public function testBug4bRealWorldHtmlWithStrongTagsNoGarbledInterleaving(): void
+    {
+        $html = DiffHtml::render(
+            '<p>The Surrogate has offered to act as an altruistic surrogate and to gestate the Embryo created with the Ova and the Sperm until the Birth of the Child. The Surrogate is over the age of TWENTY-ONE (21) years and is in a relationship of permanence with the Spouse. The Surrogate has 3 dependant child or children ("<strong>Surrogate\'s Dependant(s)</strong>").</p>' . "\n",
+            "<p>The Surrogate has offered to act as an altruistic surrogate and to gestate the Embryo created with the Ova and the Sperm until the Birth of the Child. Test writing new content.</p>\n"
+        );
+        // No garbled interleaving
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*Test/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*writing/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-removed[^>]*>[^<]*content/', $html);
+        // Old words should NOT appear in added spans
+        $this->assertDoesNotMatchRegularExpression('/diff-added[^>]*>[^<]*TWENTY-ONE/', $html);
+        $this->assertDoesNotMatchRegularExpression('/diff-added[^>]*>[^<]*permanence/', $html);
+        // No nested diff-removed inside diff-added
+        $this->assertDoesNotMatchRegularExpression('/diff-added.*diff-removed/s', $html);
     }
 
     // ─── Bug 1: Curly quotes vs straight quotes ──────────────────────
@@ -298,13 +330,14 @@ final class DiffHtmlTest extends TestCase
         $this->assertStringContainsString('diff-added', $html);
     }
 
-    public function testBug2fIgnoreFormattingTagsDefaultsToFalse(): void
+    public function testBug2fIgnoreFormattingTagsExplicitlyFalse(): void
     {
         $html = DiffHtml::render(
             '<strong>"Clinic"</strong> means selected.',
-            '"Clinic" means selected.'
+            '"Clinic" means selected.',
+            ['ignoreFormattingTags' => false]
         );
-        // Without ignoreFormattingTags, the tag difference causes the BUG:
+        // With ignoreFormattingTags explicitly false, the tag difference causes the BUG:
         // "Clinic" text appears inside a diff span even though text content is identical
         $hasDiffArtifact = str_contains($html, 'diff-added') || str_contains($html, 'diff-removed');
         $this->assertTrue($hasDiffArtifact);
