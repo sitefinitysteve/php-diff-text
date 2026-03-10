@@ -95,4 +95,33 @@ final class SimilarityTest extends TestCase
         $similarity = Similarity::compute('hello < world > test', 'hello test');
         $this->assertGreaterThan(0.8, $similarity);
     }
+
+    // ─── Quote normalization in similarity ────────────────────────────
+
+    public function testTreatsCurlyDoubleQuotesAsIdenticalToStraight(): void
+    {
+        $similarity = Similarity::compute(
+            "\u{201C}Clinic\u{201D} means selected.",
+            '"Clinic" means selected.'
+        );
+        $this->assertSame(1.0, $similarity);
+    }
+
+    public function testTreatsCurlySingleQuotesAsIdenticalToStraight(): void
+    {
+        $similarity = Similarity::compute(
+            "don\u{2019}t stop",
+            "don't stop"
+        );
+        $this->assertSame(1.0, $similarity);
+    }
+
+    public function testDoesNotPenalizeSimilarityForQuoteStyleDifferences(): void
+    {
+        $similarity = Similarity::compute(
+            "\u{201C}Clinic\u{201D} means a fertility clinic selected by the Intended Parent.",
+            '"Clinic" means a fertility clinic selected by the Intended Parent.'
+        );
+        $this->assertSame(1.0, $similarity);
+    }
 }

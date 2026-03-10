@@ -1,5 +1,6 @@
 {
     "name": "sitefinitysteve/php-diff-text",
+    "version": "1.5.0",
     "description": "PHP library to generate HTML diff output with multiple diff strategies. PHP variant of vue-diff-text.",
     "type": "library",
     "license": "MIT",

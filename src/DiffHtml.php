@@ -55,6 +55,22 @@ final class DiffHtml
     }
 
     /**
+     * Normalize input text: always normalize quotes, optionally strip formatting tags.
+     *
+     * @param array<string, mixed> $options
+     */
+    private static function normalizeInput(string $text, array $options): string
+    {
+        $text = NormalizeHtml::normalizeQuotes($text);
+
+        if ($options['ignoreFormattingTags'] ?? false) {
+            $text = NormalizeHtml::stripFormattingTags($text);
+        }
+
+        return $text;
+    }
+
+    /**
      * Render word-level diff, treating the input as HTML.
      *
      * @param array<string, mixed> $options
@@ -63,8 +79,11 @@ final class DiffHtml
     {
         $ignoreCase = $options['ignoreCase'] ?? false;
 
-        $oldTokens = Tokenizer::wordsWithSpace($oldText);
-        $newTokens = Tokenizer::wordsWithSpace($newText);
+        $normalizedOld = self::normalizeInput($oldText, $options);
+        $normalizedNew = self::normalizeInput($newText, $options);
+
+        $oldTokens = Tokenizer::wordsWithSpace($normalizedOld);
+        $newTokens = Tokenizer::wordsWithSpace($normalizedNew);
 
         $changes = Diff::diffTokens($oldTokens, $newTokens, $ignoreCase);
 

@@ -12,12 +12,12 @@ final class Similarity
 {
     /**
      * Compute similarity score (0-1) between two texts.
-     * HTML tags are stripped before comparison.
+     * HTML tags are stripped and quotes are normalized before comparison.
      */
     public static function compute(string $oldText, string $newText): float
     {
-        $cleanOld = trim(preg_replace('/<[^>]*>/', ' ', $oldText) ?? '');
-        $cleanNew = trim(preg_replace('/<[^>]*>/', ' ', $newText) ?? '');
+        $cleanOld = NormalizeHtml::normalizeQuotes(trim(preg_replace('/<[^>]*>/', ' ', $oldText) ?? ''));
+        $cleanNew = NormalizeHtml::normalizeQuotes(trim(preg_replace('/<[^>]*>/', ' ', $newText) ?? ''));
 
         if ($cleanOld === '' && $cleanNew === '') {
             return 1.0;

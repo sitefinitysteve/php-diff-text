@@ -128,4 +128,237 @@ final class DiffHtmlTest extends TestCase
         $this->assertStringNotContainsString('diff-removed', $html);
         $this->assertStringNotContainsString('diff-added', $html);
     }
+
+    // ─── Bug 1: Curly quotes vs straight quotes ──────────────────────
+
+    public function testBug1aCurlyQuotesInOldStraightInNew(): void
+    {
+        $html = DiffHtml::render(
+            "<strong>\u{201C}Clinic\u{201D}</strong> means a fertility clinic selected by the Intended Parent.",
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent and may be changed later.'
+        );
+        // Quote differences should NOT produce removed spans around "Clinic"
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        // "and may be changed later" should be added
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug1bStraightQuotesInOldCurlyInNew(): void
+    {
+        $html = DiffHtml::render(
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent.',
+            "<strong>\u{201C}Clinic\u{201D}</strong> means a fertility clinic selected by the Intended Parent and may be changed later."
+        );
+        // Quote differences should NOT produce removed spans around "Clinic"
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug1cPlainTextCurlyQuotes(): void
+    {
+        $html = DiffHtml::render(
+            "\u{201C}Clinic\u{201D} means selected by Intended Parent.",
+            '"Clinic" means selected by Intended Parent and changed.'
+        );
+        // "Clinic" should NOT appear in a diff-removed span
+        if (str_contains($html, 'diff-removed')) {
+            $this->assertStringNotContainsString('>Clinic<', $html);
+        }
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug1dSingleCurlyQuotes(): void
+    {
+        $html = DiffHtml::render(
+            "The \u{2018}Clinic\u{2019} is important.",
+            "The 'Clinic' is important and revised."
+        );
+        // "Clinic" should not be in diff-removed
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug1eIdenticalTextExceptQuotesNoDiff(): void
+    {
+        $html = DiffHtml::render(
+            "\u{201C}Clinic\u{201D} means selected.",
+            '"Clinic" means selected.'
+        );
+        $this->assertStringNotContainsString('diff-removed', $html);
+        $this->assertStringNotContainsString('diff-added', $html);
+    }
+
+    public function testBug1fMultipleCurlyQuotePairsNoDiff(): void
+    {
+        $html = DiffHtml::render(
+            "\u{201C}Clinic\u{201D} and \u{201C}Doctor\u{201D} are defined terms.",
+            '"Clinic" and "Doctor" are defined terms.'
+        );
+        $this->assertStringNotContainsString('diff-removed', $html);
+        $this->assertStringNotContainsString('diff-added', $html);
+    }
+
+    public function testBug1gCurlyQuotesWithSimilarityThreshold(): void
+    {
+        $html = DiffHtml::render(
+            "\u{201C}Clinic\u{201D} means a fertility clinic selected by the Intended Parent.",
+            '"Clinic" means a fertility clinic selected by the Intended Parent.',
+            [],
+            0.8
+        );
+        // Texts are essentially identical — should not trigger full replacement
+        $this->assertStringNotContainsString('diff-removed', $html);
+        $this->assertStringNotContainsString('diff-added', $html);
+    }
+
+    // ─── Bug 2: HTML tag wrapping mismatch ───────────────────────────
+
+    public function testBug2aOldHasStrongNewDoesNot(): void
+    {
+        $html = DiffHtml::render(
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent.',
+            '"Clinic" means a fertility clinic selected by the Intended Parent and may be changed later.',
+            ['ignoreFormattingTags' => true]
+        );
+        // "Clinic" should NOT be shown as removed
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        // Should not have nested diff-removed inside diff-added
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-added.*diff-removed/s',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug2bOldHasNoStrongNewHasStrong(): void
+    {
+        $html = DiffHtml::render(
+            '"Clinic" means a fertility clinic selected by the Intended Parent.',
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent and may be changed later.',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug2cBothHaveStrongNoSpuriousDiffs(): void
+    {
+        $html = DiffHtml::render(
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent.',
+            '<strong>"Clinic"</strong> means a fertility clinic selected by the Intended Parent and may be changed later.'
+        );
+        // "Clinic" should NOT be in any diff span (both sides have same <strong> tags)
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug2dOldHasEmNewDoesNot(): void
+    {
+        $html = DiffHtml::render(
+            '<em>Important</em> clause here.',
+            'Important clause here and more.',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Important/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug2eNestedFormattingTagsStripped(): void
+    {
+        $html = DiffHtml::render(
+            '<strong><em>"Clinic"</em></strong> means selected.',
+            '"Clinic" means selected and revised.',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testBug2fIgnoreFormattingTagsDefaultsToFalse(): void
+    {
+        $html = DiffHtml::render(
+            '<strong>"Clinic"</strong> means selected.',
+            '"Clinic" means selected.'
+        );
+        // Without ignoreFormattingTags, the tag difference causes the BUG:
+        // "Clinic" text appears inside a diff span even though text content is identical
+        $hasDiffArtifact = str_contains($html, 'diff-added') || str_contains($html, 'diff-removed');
+        $this->assertTrue($hasDiffArtifact);
+    }
+
+    public function testBug2gIgnoreFormattingTagsIdenticalTextNoDiffs(): void
+    {
+        $html = DiffHtml::render(
+            '<strong>Hello</strong> world',
+            'Hello world',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertStringNotContainsString('diff-removed', $html);
+        $this->assertStringNotContainsString('diff-added', $html);
+    }
+
+    // ─── Combined: Bugs 1 + 2 ────────────────────────────────────────
+
+    public function testCombinedCurlyQuotesAndTagMismatch(): void
+    {
+        $html = DiffHtml::render(
+            "<strong>\u{201C}Clinic\u{201D}</strong> means a fertility clinic selected by the Intended Parent.",
+            '"Clinic" means a fertility clinic selected by the Intended Parent and may be changed later.',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testCombinedStraightQuotesNoTagsCurlyQuotesWithTags(): void
+    {
+        $html = DiffHtml::render(
+            '"Clinic" means a fertility clinic selected by the Intended Parent.',
+            "<strong>\u{201C}Clinic\u{201D}</strong> means a fertility clinic selected by the Intended Parent and may be changed later.",
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/diff-removed[^>]*>[^<]*Clinic/',
+            $html
+        );
+        $this->assertStringContainsString('diff-added', $html);
+    }
+
+    public function testCombinedIdenticalContentDifferentQuotesAndTagsNoDiff(): void
+    {
+        $html = DiffHtml::render(
+            "<strong>\u{201C}Clinic\u{201D}</strong> means selected.",
+            '"Clinic" means selected.',
+            ['ignoreFormattingTags' => true]
+        );
+        $this->assertStringNotContainsString('diff-removed', $html);
+        $this->assertStringNotContainsString('diff-added', $html);
+    }
 }
